@@ -11,7 +11,7 @@ import {
   ALERT_EVENTS_DATA_STREAM,
   type AlertEventType,
 } from '../../resources/datastreams/alert_events';
-import type { AlertEpisode, NotificationGroupId } from './types';
+import type { AlertEpisode, ActionGroupId } from './types';
 
 /**
  * Fetches dispatchable alert events by querying both alert_events and alert_actions data streams.
@@ -39,10 +39,11 @@ export const getDispatchableAlertEventsQuery = (): EsqlRequest => {
       | STATS
           last_event_timestamp = MAX(@timestamp) WHERE type IS NOT NULL,
           last_episode_status = LAST(episode_status, @timestamp) WHERE type IS NOT NULL,
-          data_json = LAST(data_json, @timestamp) WHERE type IS NOT NULL
+          data_json = LAST(data_json, @timestamp) WHERE type IS NOT NULL,
+          severity = LAST(severity, @timestamp) WHERE type IS NOT NULL
           BY rule_id, group_hash, episode_id
       | WHERE last_event_timestamp IS NOT NULL
-      | KEEP last_event_timestamp, rule_id, group_hash, episode_id, last_episode_status, data_json
+      | KEEP last_event_timestamp, rule_id, group_hash, episode_id, last_episode_status, data_json, severity
       | RENAME last_episode_status AS episode_status
       | SORT last_event_timestamp asc
       | LIMIT 10000`.toRequest();
@@ -89,15 +90,13 @@ export const getAlertEpisodeSuppressionsQuery = (alertEpisodes: AlertEpisode[]):
       | KEEP rule_id, group_hash, episode_id, should_suppress, last_ack_action, last_deactivate_action, last_snooze_action`.toRequest();
 };
 
-export const getLastNotifiedTimestampsQuery = (
-  notificationGroupIds: NotificationGroupId[]
-): EsqlRequest => {
-  const values = notificationGroupIds.map((id) => esql.str(id));
-  const whereClause = esql.exp`action_type == "notified" AND notification_group_id IN (${values})`;
+export const getLastNotifiedTimestampsQuery = (actionGroupIds: ActionGroupId[]): EsqlRequest => {
+  const values = actionGroupIds.map((id) => esql.str(id));
+  const whereClause = esql.exp`action_type == "notified" AND action_group_id IN (${values})`;
 
   return esql`FROM ${ALERT_ACTIONS_DATA_STREAM}
     | WHERE ${whereClause}
-    | STATS last_notified = MAX(@timestamp), episode_status = LAST(episode_status, @timestamp) BY notification_group_id
-    | KEEP notification_group_id, last_notified, episode_status
+    | STATS last_notified = MAX(@timestamp), episode_status = LAST(episode_status, @timestamp) BY action_group_id
+    | KEEP action_group_id, last_notified, episode_status
     `.toRequest();
 };
